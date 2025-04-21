@@ -1,0 +1,88 @@
+#!/bin/bash
+
+# BitLocker Unlocker Script
+# Requires: dislocker, zenity
+
+LOG_FILE=~/unlock_bitlocker.log
+BITLOCKER_DIR="/media/bitlocker"
+MOUNT_DIR="/media/mount"
+
+log() {
+    echo "$(date +'%F %T') - $1" | tee -a "$LOG_FILE"
+}
+
+# Check if dislocker is installed
+if ! command -v dislocker >/dev/null 2>&1; then
+    log "Dislocker not found. Installing..."
+    if command -v apt >/dev/null 2>&1; then
+        sudo apt update && sudo apt install dislocker -y
+    elif command -v dnf >/dev/null 2>&1; then
+        sudo dnf install dislocker -y
+    elif command -v apk >/dev/null 2>&1; then
+        sudo apk add dislocker
+    else
+        zenity --error --text="Unsupported package manager. Please install dislocker manually."
+        exit 1
+    fi
+fi
+
+# Create mount directories
+sudo mkdir -p "$BITLOCKER_DIR" "$MOUNT_DIR"
+
+# Get list of BitLocker-encrypted devices
+get_drives() {
+    lsblk -o NAME,SIZE,TYPE,MOUNTPOINT | grep -E "part|disk" | awk '{print "/dev/" $1 " (" $2 ")"}'
+}
+
+CHOICE=$(zenity --list --title="Select BitLocker Drive" --column="Available Drives" $(get_drives) --height=400 --width=400)
+if [[ -z "$CHOICE" ]]; then
+    zenity --error --text="No drive selected. Exiting."
+    exit 1
+fi
+
+SELECTED_DRIVE=$(echo "$CHOICE" | awk '{print $1}')
+
+AUTH_METHOD=$(zenity --list --radiolist   --title="Authentication Method"   --column="Select" --column="Method"   TRUE "Password" FALSE "Recovery Key")
+
+if [[ "$AUTH_METHOD" == "Password" ]]; then
+    PASSWORD=$(zenity --password --title="Enter BitLocker Password")
+    if [[ -z "$PASSWORD" ]]; then
+        zenity --error --text="Password not provided. Exiting."
+        exit 1
+    fi
+    echo "$PASSWORD" | sudo dislocker -v -V "$SELECTED_DRIVE" -u -- "$BITLOCKER_DIR"
+else
+    RECOVERY_KEY=$(zenity --entry --title="Enter Recovery Key" --text="Enter your 48-digit BitLocker recovery key:")
+    if [[ -z "$RECOVERY_KEY" ]]; then
+        zenity --error --text="Recovery key not provided. Exiting."
+        exit 1
+    fi
+    sudo dislocker -v -V "$SELECTED_DRIVE" --recovery-password="$RECOVERY_KEY" -- "$BITLOCKER_DIR"
+fi
+
+# Check dislocker-file exists
+if [[ ! -f "$BITLOCKER_DIR/dislocker-file" ]]; then
+    zenity --error --text="Dislocker failed to unlock the volume. Check credentials and try again."
+    log "Dislocker failed to unlock $SELECTED_DRIVE"
+    exit 1
+fi
+
+# Mount unlocked volume
+sudo mount -o loop,rw "$BITLOCKER_DIR/dislocker-file" "$MOUNT_DIR"
+if [[ $? -eq 0 ]]; then
+    zenity --info --text="Drive successfully mounted at $MOUNT_DIR"
+    log "Mounted $SELECTED_DRIVE at $MOUNT_DIR"
+else
+    zenity --error --text="Failed to mount drive."
+    log "Failed to mount $SELECTED_DRIVE"
+    exit 1
+fi
+
+# Ask to unmount
+zenity --question --text="Do you want to unmount the drive now?" --ok-label="Yes" --cancel-label="No"
+if [[ $? -eq 0 ]]; then
+    sudo umount "$MOUNT_DIR"
+    sudo rm -rf "$BITLOCKER_DIR" "$MOUNT_DIR"
+    zenity --info --text="Drive unmounted and cleaned up."
+    log "Drive unmounted and directories cleaned."
+fi

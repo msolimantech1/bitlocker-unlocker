@@ -1,0 +1,8 @@
+Package: bitlocker-unlocker
+Version: 1.0
+Section: utils
+Priority: optional
+Architecture: all
+Depends: dislocker, zenity
+Maintainer: MSolimanTech <msoliman@mgdevtech.com>
+Description: GUI-based tool to unlock and mount BitLocker-encrypted drives using Dislocker.

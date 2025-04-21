@@ -1,0 +1,8 @@
+[Desktop Entry]
+Name=Unlock BitLocker Drive
+Comment=Unlock and mount BitLocker-encrypted drive
+Exec=sudo /usr/local/bin/unlock-bitlocker
+Icon=dialog-password
+Terminal=false
+Type=Application
+Categories=Utility;
